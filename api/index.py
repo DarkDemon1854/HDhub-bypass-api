@@ -71,17 +71,27 @@ class HDHubBypass:
     def _get_curl_session(self):
         if not self.curl_session:
             self.curl_session = curl_requests.Session()
-            self.curl_session.impersonate = "chrome110"
+            self.curl_session.impersonate = "chrome120"
+            self.curl_session.headers = self.std_session.headers.copy()
         return self.curl_session
 
-    def _get(self, url, timeout=15):
+    def _get(self, url, headers=None, timeout=15):
         try:
-            resp = self.std_session.get(url, timeout=timeout)
+            # Merge headers if provided
+            req_headers = self.std_session.headers.copy()
+            if headers:
+                req_headers.update(headers)
+
+            resp = self.std_session.get(url, headers=req_headers, timeout=timeout)
             if resp.status_code in [403, 503]:
                 raise Exception("CF Block")
             return resp
         except:
-            return self._get_curl_session().get(url, timeout=30)
+            # Fallback to curl_cffi with same headers
+            s = self._get_curl_session()
+            if headers:
+                s.headers.update(headers)
+            return s.get(url, timeout=30)
 
     def rot13(self, s):
         res = []
@@ -117,7 +127,8 @@ class HDHubBypass:
                 raise Exception("HubCloud URL missing")
 
             hubcloud_url = base64.b64decode(hubcloud_b64).decode('utf-8')
-            resp = self._get(hubcloud_url)
+            # Add Referer to bypass HubCloud protection
+            resp = self._get(hubcloud_url, headers={"Referer": url})
 
             title_m = re.search(r'<title>([^<]+)</title>', resp.text)
             if title_m:
