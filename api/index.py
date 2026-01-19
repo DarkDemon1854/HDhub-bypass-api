@@ -200,7 +200,7 @@ class HDHubScraper:
         # Extract singles (episodes section)
         singles_m = re.search(r'id="episodes"(.*?)(?:</main>)', html, re.DOTALL)
         if singles_m:
-            result["singles"] = self._extract(singles_m.group(1), "single")
+            result["singles"] = self._extract(singles_m.group(1), "single", item_class="episode-download-item")
 
         # Movies - extract from whole page
         if not is_series:
@@ -208,11 +208,11 @@ class HDHubScraper:
 
         return result
 
-    def _extract(self, html, link_type):
+    def _extract(self, html, link_type, item_class="download-item"):
         items = []
 
-        # Split on download-item class
-        parts = html.split('class="download-item')
+        # Split on item class
+        parts = html.split(f'class="{item_class}')
 
         for part in parts[1:]:
             item = {
@@ -225,8 +225,12 @@ class HDHubScraper:
                 "links": {}
             }
 
-            # Title from file-title div
-            t = re.search(r'class="file-title"[^>]*>([^<]+)', part)
+            # Title
+            if "episode" in item_class:
+                t = re.search(r'class="episode-file-title"[^>]*>\s*([^<]+)', part)
+            else:
+                t = re.search(r'class="file-title"[^>]*>([^<]+)', part)
+
             if t:
                 item["title"] = t.group(1).strip()
             else:
@@ -234,32 +238,49 @@ class HDHubScraper:
                 if h:
                     item["title"] = h.group(1).strip()
 
-            # Size (orange)
-            s = re.search(r'#ea580c[^>]*>([^<]+)', part)
+            # Size
+            if "episode" in item_class:
+                s = re.search(r'class="badge-size"[^>]*>([^<]+)', part)
+            else:
+                s = re.search(r'#ea580c[^>]*>([^<]+)', part)
+
             if s:
                 item["size"] = s.group(1).strip()
 
-            # Quality (blue)
-            q = re.search(r'#1e40af[^>]*>([^<]+)', part)
+            # Quality
+            if "episode" in item_class:
+                q = re.search(r'class="badge"[^>]*BACKGROUND-COLOR:\s*#1e40af[^>]*>([^<]+)', part, re.IGNORECASE)
+                if not q:
+                     q = re.search(r'class="badge"[^>]*>([^<]+)', part)
+            else:
+                 q = re.search(r'#1e40af[^>]*>([^<]+)', part)
+
             if q:
                 item["quality"] = q.group(1).strip()
 
-            # Season
-            sn = re.search(r'episode-number[^>]*>([^<]+)', part)
-            if sn:
-                item["season"] = sn.group(1).strip()
+            # Season/Episode
+            if "episode" in item_class:
+                sn = re.search(r'class="badge-psa"[^>]*>([^<]+)', part)
+                if sn:
+                    item["season"] = sn.group(1).strip()
+            else:
+                sn = re.search(r'episode-number[^>]*>([^<]+)', part)
+                if sn:
+                    item["season"] = sn.group(1).strip()
 
-            # ALL gadgetsweb links with host names
-            # Pattern: [Download HubCloud](url) or <a href="url">Download HubCloud</a>
-            link_pattern = re.findall(r'\[Download ([^\]]+)\]\((https://gadgetsweb\.xyz/\?id=[^)]+)\)', part)
-            if not link_pattern:
-                # Fallback: HTML anchor pattern
-                link_pattern = re.findall(r'href="(https://gadgetsweb\.xyz/\?id=[^"]+)"[^>]*>([^<]+)', part)
-                # Swap order for consistency (host, url)
-                link_pattern = [(host.replace("Download ", "").strip(), url) for url, host in link_pattern]
+            # Links with Host Parsing
+            link_matches = re.finditer(r'<a[^>]*href="(https://gadgetsweb\.xyz/\?id=[^"]+)"[^>]*>(.*?)</a>', part, re.DOTALL)
 
-            for i, (host, url) in enumerate(link_pattern):
-                item["links"][f"{host}"] = url
+            for match in link_matches:
+                url = match.group(1)
+                content = match.group(2)
+
+                text = re.sub(r'<[^>]+>', '', content)
+                text = text.replace('&nbsp;', ' ').strip()
+                host = text.replace('Download ', '').strip()
+
+                if host:
+                    item["links"][host] = url
 
             if item["links"]:
                 items.append(item)
