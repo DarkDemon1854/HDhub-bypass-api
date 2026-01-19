@@ -127,7 +127,8 @@ class HDHubBypass:
             if not btn:
                 btn = re.search(r'href="([^"]+)"[^>]*id="download"', resp.text)
             if not btn:
-                raise Exception("Download button not found")
+                # Debug: Include snippet of HTML to see if we are blocked
+                raise Exception(f"Download button not found. Page content: {resp.text[:500]}")
 
             gamer_url = btn.group(1).replace("&amp;", "&")
             resp = self._get(gamer_url)
