@@ -81,7 +81,34 @@ Returns API info & available endpoints.
 
 ---
 
-### 🔍 Find Links (NEW!)
+### 🔎 Search Movies/Series (NEW!)
+Search for movies or series by name.
+
+```http
+GET /search?q=avengers
+GET /search?q=breaking+bad
+```
+
+**Response:**
+```json
+{
+  "query": "avengers",
+  "total_results": 5,
+  "results": [
+    {
+      "title": "Avengers Endgame 2019",
+      "url": "https://4khdhub.dad/avengers-endgame/",
+      "poster": "https://...",
+      "year": "2019",
+      "type": "movie"
+    }
+  ]
+}
+```
+
+---
+
+### 🔍 Find Links
 Extracts all download links with quality, size, and host info.
 
 ```http

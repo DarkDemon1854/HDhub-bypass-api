@@ -2,15 +2,17 @@
 HDHub Bypass API
 ================
 
-All endpoints support GET (with ?url=...) and POST (with JSON body).
+All endpoints support GET (with ?url=... or ?q=...) and POST (with JSON body).
 
 Endpoints:
-  GET/POST /scrape     - Extract all download links from a movie/series page
-  GET/POST /find       - Find all gadgetsweb links with file info (quality, size, host)
-  GET/POST /bypass     - Resolve a gadgetsweb link to final direct download URL
+  GET      /search    - Search for movies/series by name (use ?q=movie+name)
+  GET/POST /scrape    - Extract all download links from a movie/series page
+  GET/POST /find      - Find all gadgetsweb links with file info (quality, size, host)
+  GET/POST /bypass    - Resolve a gadgetsweb link to final direct download URL
   GET/POST /bypass_all - Scrape and bypass all links
 
 Examples:
+  GET  /search?q=avengers
   GET  /find?url=https://4khdhub.dad/your-movie/
   POST /find  {"url": "https://4khdhub.dad/your-movie/"}
 
@@ -183,6 +185,62 @@ class HDHubScraper:
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         })
 
+    def search_movies(self, query):
+        """Search for movies/series by name on HDHub."""
+        search_url = f"https://4khdhub.dad/?s={query.replace(' ', '+')}"
+        resp = self.session.get(search_url, timeout=30)
+        html = resp.text
+
+        results = []
+
+        # Extract search results - each result card
+        cards = re.findall(r'<article[^>]*class="[^"]*post-card[^"]*"[^>]*>(.*?)</article>', html, re.DOTALL)
+
+        for card in cards:
+            item = {}
+
+            # Title and URL
+            title_match = re.search(r'<a[^>]*href="([^"]+)"[^>]*class="[^"]*entry-title[^"]*"[^>]*>([^<]+)</a>', card)
+            if not title_match:
+                title_match = re.search(r'class="[^"]*entry-title[^"]*"[^>]*>\s*<a[^>]*href="([^"]+)"[^>]*>([^<]+)</a>', card)
+
+            if title_match:
+                item["url"] = title_match.group(1)
+                item["title"] = title_match.group(2).strip()
+            else:
+                # Try alternative pattern
+                url_match = re.search(r'<a[^>]*href="(https://4khdhub\.dad/[^"]+)"', card)
+                title_match2 = re.search(r'entry-title[^>]*>([^<]+)', card)
+                if url_match:
+                    item["url"] = url_match.group(1)
+                if title_match2:
+                    item["title"] = title_match2.group(1).strip()
+
+            # Poster image
+            img_match = re.search(r'<img[^>]*src="([^"]+)"', card)
+            if img_match:
+                item["poster"] = img_match.group(1)
+
+            # Year (usually in title or badge)
+            year_match = re.search(r'\b(19|20)\d{2}\b', item.get("title", ""))
+            if year_match:
+                item["year"] = year_match.group(0)
+
+            # Type detection
+            if any(x in item.get("title", "").lower() for x in ["season", "series", "s01", "s02", "episode"]):
+                item["type"] = "series"
+            else:
+                item["type"] = "movie"
+
+            if item.get("url") and item.get("title"):
+                results.append(item)
+
+        return {
+            "query": query,
+            "total_results": len(results),
+            "results": results
+        }
+
     def scrape_page(self, url):
         resp = self.session.get(url, timeout=30)
         html = resp.text
@@ -320,17 +378,31 @@ async def root():
     return {
         "message": "🎬 HDHub Bypass API 🔥",
         "endpoints": {
-            "/scrape": "GET/POST - Extract download links from page (use ?url=... for GET)",
-            "/find": "GET/POST - Find all gadgetsweb links with file info (use ?url=... for GET)",
-            "/bypass": "GET/POST - Resolve gadgetsweb URL to direct link (use ?url=... for GET)",
-            "/bypass_all": "GET/POST - Scrape and bypass all links (use ?url=... for GET)"
+            "/search": "GET - Search movies/series by name (use ?q=movie+name)",
+            "/scrape": "GET/POST - Extract download links from page (use ?url=...)",
+            "/find": "GET/POST - Find all gadgetsweb links with file info (use ?url=...)",
+            "/bypass": "GET/POST - Resolve gadgetsweb URL to direct link (use ?url=...)",
+            "/bypass_all": "GET/POST - Scrape and bypass all links (use ?url=...)"
         },
-        "example": "/find?url=https://4khdhub.dad/your-movie-page/"
+        "examples": {
+            "search": "/search?q=avengers",
+            "find": "/find?url=https://4khdhub.dad/your-movie-page/"
+        }
     }
 
 # =====================
 # GET ENDPOINTS (URL as query param)
 # =====================
+
+@app.get("/search")
+async def search_movies(q: str):
+    """🔍 Search for movies/series by name on HDHub."""
+    try:
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(executor, scraper.search_movies, q)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/find")
 async def find_links_get(url: str):
