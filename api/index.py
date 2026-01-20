@@ -192,47 +192,64 @@ class HDHubScraper:
         html = resp.text
 
         results = []
+        seen_urls = set()
 
-        # Extract search results - each result card
-        cards = re.findall(r'<article[^>]*class="[^"]*post-card[^"]*"[^>]*>(.*?)</article>', html, re.DOTALL)
+        # Pattern 1: Try article cards first
+        cards = re.findall(r'<article[^>]*>(.*?)</article>', html, re.DOTALL)
 
         for card in cards:
-            item = {}
+            # Find URL and title in card
+            link_match = re.search(r'href="(https://4khdhub\.dad/[^"?]+)"[^>]*>([^<]+)', card)
+            if link_match:
+                url = link_match.group(1)
+                title = link_match.group(2).strip()
 
-            # Title and URL
-            title_match = re.search(r'<a[^>]*href="([^"]+)"[^>]*class="[^"]*entry-title[^"]*"[^>]*>([^<]+)</a>', card)
-            if not title_match:
-                title_match = re.search(r'class="[^"]*entry-title[^"]*"[^>]*>\s*<a[^>]*href="([^"]+)"[^>]*>([^<]+)</a>', card)
+                if url not in seen_urls and len(title) > 3:
+                    seen_urls.add(url)
+                    item = {"url": url, "title": title}
 
-            if title_match:
-                item["url"] = title_match.group(1)
-                item["title"] = title_match.group(2).strip()
-            else:
-                # Try alternative pattern
-                url_match = re.search(r'<a[^>]*href="(https://4khdhub\.dad/[^"]+)"', card)
-                title_match2 = re.search(r'entry-title[^>]*>([^<]+)', card)
-                if url_match:
-                    item["url"] = url_match.group(1)
-                if title_match2:
-                    item["title"] = title_match2.group(1).strip()
+                    # Year
+                    year_m = re.search(r'\b(19|20)\d{2}\b', title)
+                    if year_m:
+                        item["year"] = year_m.group(0)
 
-            # Poster image
-            img_match = re.search(r'<img[^>]*src="([^"]+)"', card)
-            if img_match:
-                item["poster"] = img_match.group(1)
+                    # Poster
+                    img_m = re.search(r'<img[^>]*src="([^"]+)"', card)
+                    if img_m:
+                        item["poster"] = img_m.group(1)
 
-            # Year (usually in title or badge)
-            year_match = re.search(r'\b(19|20)\d{2}\b', item.get("title", ""))
-            if year_match:
-                item["year"] = year_match.group(0)
+                    # Type
+                    if any(x in title.lower() for x in ["season", "series", "s01", "s02", "episode"]):
+                        item["type"] = "series"
+                    else:
+                        item["type"] = "movie"
 
-            # Type detection
-            if any(x in item.get("title", "").lower() for x in ["season", "series", "s01", "s02", "episode"]):
-                item["type"] = "series"
-            else:
-                item["type"] = "movie"
+                    results.append(item)
 
-            if item.get("url") and item.get("title"):
+        # Pattern 2: Fallback - find all movie links directly
+        if not results:
+            all_links = re.findall(r'href="(https://4khdhub\.dad/[^"?]+)"[^>]*>\s*([^<]+)', html)
+
+            for url, title in all_links:
+                title = title.strip()
+                # Skip nav/footer links
+                if any(x in url.lower() for x in ['/page/', '/category/', '/about', '/contact', '/dmca', '/privacy']):
+                    continue
+                if url in seen_urls or len(title) < 3:
+                    continue
+
+                seen_urls.add(url)
+                item = {"url": url, "title": title}
+
+                year_m = re.search(r'\b(19|20)\d{2}\b', title)
+                if year_m:
+                    item["year"] = year_m.group(0)
+
+                if any(x in title.lower() for x in ["season", "series", "s01", "s02", "episode"]):
+                    item["type"] = "series"
+                else:
+                    item["type"] = "movie"
+
                 results.append(item)
 
         return {
